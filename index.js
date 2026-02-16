@@ -71,6 +71,7 @@ function checkAndResetWeekly() {
             stats.users = [];
             stats.count1 = 0;
             stats.count2 = 0;
+            stats.voteDetails = []; // Reset chi tiết vote
             stats.lastReset = currentWeekStart;
             console.log(`🔄 Reset poll ${pollId} cho tuần mới`);
         }
@@ -102,9 +103,10 @@ const commands = [
         .addSubcommand(sub =>
             sub.setName('create')
                .setDescription('Tạo poll mới')
-               .addStringOption(opt => opt.setName('title').setDescription('Tiêu đề').setRequired(true))
+               .addStringOption(opt => opt.setName('title').setDescription('Tiêu đề poll').setRequired(true))
                .addStringOption(opt => opt.setName('op1').setDescription('Lựa chọn 1').setRequired(true))
-               .addStringOption(opt => opt.setName('op2').setDescription('Lựa chọn 2').setRequired(true))
+               .addStringOption(opt => opt.setName('op2').setDescription('Lựa chọn 2 (tuỳ chọn)').setRequired(false))
+               .addStringOption(opt => opt.setName('description').setDescription('Phụ đề/Mô tả (tuỳ chọn)').setRequired(false))
         ),
     // Lệnh /help
     new SlashCommandBuilder()
@@ -119,12 +121,20 @@ const commands = [
     // Lệnh /log
     new SlashCommandBuilder()
         .setName('log')
-        .setDescription('Xem lịch sử hoạt động của bot')
+        .setDescription('Xem lịch sử vote trong tuần')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     // Lệnh /admin
     new SlashCommandBuilder()
         .setName('admin')
-        .setDescription('Bảng điều khiển quản trị bot')
+        .setDescription('Quản trị bot')
+        .addSubcommand(sub =>
+            sub.setName('panel')
+               .setDescription('Xem bảng điều khiển')
+        )
+        .addSubcommand(sub =>
+            sub.setName('cancel')
+               .setDescription('Xóa poll gần nhất')
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(cmd => cmd.toJSON());
 
@@ -168,24 +178,132 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (commandName === 'log') {
-            const logContent = systemLogs.slice(-10).join('\n') || 'Chưa có hoạt động nào.';
-            return interaction.reply({ content: `**Hoạt động gần đây:**\n\`\`\`${logContent}\`\`\``, ephemeral: true });
+            // Lấy tuần hiện tại
+            const currentWeekStart = getLastSunday();
+            const currentWeekEnd = currentWeekStart + (7 * 24 * 60 * 60 * 1000);
+            
+            let allVotes = [];
+            
+            // Lấy tất cả vote trong tuần từ các poll
+            pollStats.forEach((stats, pollId) => {
+                if (stats.voteDetails && Array.isArray(stats.voteDetails)) {
+                    stats.voteDetails.forEach(vote => {
+                        if (vote.timestamp >= currentWeekStart && vote.timestamp < currentWeekEnd) {
+                            allVotes.push({
+                                ...vote,
+                                pollTitle: stats.title || 'Poll',
+                                option: vote.choice === '1' ? stats.op1 : (stats.op2 || 'Option 2')
+                            });
+                        }
+                    });
+                }
+            });
+            
+            // Sắp xếp theo thời gian (mới nhất trước)
+            allVotes.sort((a, b) => b.timestamp - a.timestamp);
+            
+            if (allVotes.length === 0) {
+                return interaction.reply({ content: '� **Báo cáo Vote Tuần Này**\n\n```\nChưa có ai vote trong tuần này.\n```', ephemeral: true });
+            }
+            
+            // Tạo bảng báo cáo dạng text
+            let report = '📊 **BÁO CÁO VOTE TUẦN NÀY**\n';
+            report += `Tổng số vote: **${allVotes.length}**\n`;
+            report += `Thời gian: <t:${Math.floor(currentWeekStart / 1000)}:D> - <t:${Math.floor(currentWeekEnd / 1000)}:D>\n\n`;
+            report += '```\n';
+            report += '┌────┬─────────────────────┬──────────────────────┬─────────────────┐\n';
+            report += '│ #  │ Tên User            │ Poll                 │ Lựa chọn        │\n';
+            report += '├────┼─────────────────────┼──────────────────────┼─────────────────┤\n';
+            
+            // Giới hạn 20 vote để tránh quá dài
+            const displayVotes = allVotes.slice(0, 20);
+            
+            displayVotes.forEach((vote, index) => {
+                const num = String(index + 1).padEnd(2);
+                const name = vote.displayName.substring(0, 19).padEnd(19);
+                const poll = vote.pollTitle.substring(0, 20).padEnd(20);
+                const option = vote.option.substring(0, 15).padEnd(15);
+                
+                report += `│ ${num} │ ${name} │ ${poll} │ ${option} │\n`;
+            });
+            
+            report += '└────┴─────────────────────┴──────────────────────┴─────────────────┘\n';
+            
+            if (allVotes.length > 20) {
+                report += `\n... và ${allVotes.length - 20} vote khác\n`;
+            }
+            
+            report += '```\n';
+            report += '💡 *Reset vào Chủ nhật hàng tuần*';
+            
+            return interaction.reply({ content: report, ephemeral: true });
         }
 
         if (commandName === 'admin') {
-            const adminEmbed = new EmbedBuilder()
-                .setTitle('⚙️ Bot Admin Panel')
-                .setColor(0x2c3e50)
-                .addFields(
-                    { name: 'Kênh Log hiện tại', value: botConfig.adminChannel ? `<#${botConfig.adminChannel}>` : 'Chưa thiết lập', inline: true },
-                    { name: 'Tổng số Poll đã tạo', value: `${pollStats.size}`, inline: true },
-                    { name: 'Trạng thái', value: '🟢 Hoạt động ổn định', inline: true }
-                );
-            return interaction.reply({ embeds: [adminEmbed], ephemeral: true });
+            const subcommand = options.getSubcommand();
+            
+            if (subcommand === 'panel') {
+                const adminEmbed = new EmbedBuilder()
+                    .setTitle('⚙️ Bot Admin Panel')
+                    .setColor(0x2c3e50)
+                    .addFields(
+                        { name: 'Kênh Log hiện tại', value: botConfig.adminChannel ? `<#${botConfig.adminChannel}>` : 'Chưa thiết lập', inline: true },
+                        { name: 'Tổng số Poll đã tạo', value: `${pollStats.size}`, inline: true },
+                        { name: 'Trạng thái', value: '🟢 Hoạt động ổn định', inline: true }
+                    );
+                return interaction.reply({ embeds: [adminEmbed], ephemeral: true });
+            }
+            
+            if (subcommand === 'cancel') {
+                // Tìm poll gần nhất (theo thời gian tạo)
+                let latestPoll = null;
+                let latestTime = 0;
+                let latestId = null;
+                
+                pollStats.forEach((stats, pollId) => {
+                    // Giả sử pollId có format timestamp_random hoặc là message ID
+                    const pollTime = parseInt(pollId.split('_')[0]) || 0;
+                    if (pollTime > latestTime) {
+                        latestTime = pollTime;
+                        latestPoll = stats;
+                        latestId = pollId;
+                    }
+                });
+                
+                if (!latestPoll) {
+                    return interaction.reply({ content: '❌ Không tìm thấy poll nào để xóa.', ephemeral: true });
+                }
+                
+                try {
+                    // Xóa message poll
+                    const channel = await client.channels.fetch(latestPoll.channelId);
+                    const message = await channel.messages.fetch(latestPoll.messageId || latestId);
+                    await message.delete();
+                    
+                    // Xóa khỏi database
+                    pollStats.delete(latestId);
+                    saveData();
+                    
+                    return interaction.reply({ 
+                        content: `✅ Đã xóa poll: **${latestPoll.title}**`, 
+                        ephemeral: true 
+                    });
+                } catch (error) {
+                    console.error('Lỗi khi xóa poll:', error);
+                    // Xóa khỏi database dù không xóa được message
+                    pollStats.delete(latestId);
+                    saveData();
+                    return interaction.reply({ 
+                        content: `⚠️ Đã xóa poll khỏi database nhưng không thể xóa message. Poll: **${latestPoll.title}**`, 
+                        ephemeral: true 
+                    });
+                }
+            }
         }
 
         if (commandName === 'poll') {
             const title = options.getString('title');
+            const description = options.getString('description');
             const op1 = options.getString('op1');
             const op2 = options.getString('op2');
 
@@ -196,17 +314,35 @@ client.on('interactionCreate', async (interaction) => {
             const currentWeekStart = getLastSunday();
             pollStats.set(tempId, { 
                 op1, op2, count1: 0, count2: 0, users: [], 
-                title, channelId: interaction.channelId,
+                title, description, channelId: interaction.channelId,
                 lastReset: currentWeekStart // Lưu timestamp tuần hiện tại
             });
 
-            const embed = new EmbedBuilder().setTitle(`📝 ${title}`).setColor(0xf1c40f)
-                .addFields({ name: `1️⃣ ${op1}`, value: '0', inline: true }, { name: `2️⃣ ${op2}`, value: '0', inline: true });
+            // Tạo embed với thiết kế mới
+            const embed = new EmbedBuilder()
+                .setTitle(`📝 ${title}`)
+                .setColor(0xf1c40f);
+            
+            // Thêm phụ đề nếu có
+            if (description) {
+                embed.setDescription(description);
+            }
+            
+            // Thêm footer thông tin
+            embed.setFooter({ text: 'Mỗi người chỉ được vote 1 lần/tuần • Reset: Chủ nhật' });
 
-            const buttons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`p_1_${tempId}`).setLabel(op1).setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId(`p_2_${tempId}`).setLabel(op2).setStyle(ButtonStyle.Secondary)
-            );
+            // Tạo buttons - 1 hoặc 2 tuỳ theo input
+            const buttonComponents = [
+                new ButtonBuilder().setCustomId(`p_1_${tempId}`).setLabel(op1).setStyle(ButtonStyle.Primary).setEmoji('1️⃣')
+            ];
+            
+            if (op2) {
+                buttonComponents.push(
+                    new ButtonBuilder().setCustomId(`p_2_${tempId}`).setLabel(op2).setStyle(ButtonStyle.Secondary).setEmoji('2️⃣')
+                );
+            }
+
+            const buttons = new ActionRowBuilder().addComponents(buttonComponents);
 
             const reply = await interaction.reply({ embeds: [embed], components: [buttons], fetchReply: true });
             const pollId = reply.id;
@@ -219,10 +355,17 @@ client.on('interactionCreate', async (interaction) => {
             saveData();
             
             // Cập nhật button với poll ID thật
-            const newButtons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`p_1_${pollId}`).setLabel(op1).setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId(`p_2_${pollId}`).setLabel(op2).setStyle(ButtonStyle.Secondary)
-            );
+            const newButtonComponents = [
+                new ButtonBuilder().setCustomId(`p_1_${pollId}`).setLabel(op1).setStyle(ButtonStyle.Primary).setEmoji('1️⃣')
+            ];
+            
+            if (op2) {
+                newButtonComponents.push(
+                    new ButtonBuilder().setCustomId(`p_2_${pollId}`).setLabel(op2).setStyle(ButtonStyle.Secondary).setEmoji('2️⃣')
+                );
+            }
+            
+            const newButtons = new ActionRowBuilder().addComponents(newButtonComponents);
             await reply.edit({ components: [newButtons] });
         }
     }
@@ -240,6 +383,7 @@ client.on('interactionCreate', async (interaction) => {
             stats.users = [];
             stats.count1 = 0;
             stats.count2 = 0;
+            stats.voteDetails = []; // Reset chi tiết vote khi chuyển tuần mới
             stats.lastReset = currentWeekStart;
             saveData();
         }
@@ -255,25 +399,31 @@ client.on('interactionCreate', async (interaction) => {
             const displayName = member.displayName || interaction.user.username;
             const voteTime = new Date();
             
-            // Cập nhật số vote
+            // Cập nhật số vote và lưu chi tiết
             type === '1' ? stats.count1++ : stats.count2++;
+            
+            // Lưu thông tin chi tiết của vote
+            if (!stats.voteDetails) stats.voteDetails = [];
+            stats.voteDetails.push({
+                userId: interaction.user.id,
+                username: interaction.user.tag,
+                displayName: displayName,
+                timestamp: voteTime.getTime(),
+                choice: type
+            });
+            
             stats.users.push(interaction.user.id);
             saveData();
 
-            // Lấy message gốc và cập nhật Embed
-            const pollMessage = await interaction.channel.messages.fetch(pollId);
-            const embed = EmbedBuilder.from(pollMessage.embeds[0]);
-            embed.setFields(
-                { name: `1️⃣ ${stats.op1}`, value: `${stats.count1}`, inline: true },
-                { name: `2️⃣ ${stats.op2}`, value: `${stats.count2}`, inline: true }
-            );
-            await pollMessage.edit({ embeds: [embed] });
+            // Không cần cập nhật embed vì không hiển thị số vote trên poll nữa
+            // Poll giữ nguyên giao diện ban đầu
 
             // Gửi thông tin user vào kênh Admin
             if (botConfig.adminChannel) {
                 try {
                     const adminChan = await client.channels.fetch(botConfig.adminChannel);
                     if (adminChan) {
+                        const optionText = type === '1' ? `1️⃣ ${stats.op1}` : `2️⃣ ${stats.op2 || 'Option 2'}`;
                         const log = new EmbedBuilder()
                             .setTitle('🔔 Vote Poll Mới')
                             .setColor(type === '1' ? 0x3498db : 0x9b59b6)
@@ -282,7 +432,7 @@ client.on('interactionCreate', async (interaction) => {
                                 { name: '🆔 Username', value: interaction.user.tag, inline: true },
                                 { name: '⏰ Thời gian react', value: `<t:${Math.floor(voteTime.getTime() / 1000)}:F>`, inline: false },
                                 { name: '📝 Form react', value: `**${stats.title || 'Poll'}**`, inline: false },
-                                { name: '✅ Lựa chọn', value: type === '1' ? `1️⃣ ${stats.op1}` : `2️⃣ ${stats.op2}`, inline: true },
+                                { name: '✅ Lựa chọn', value: optionText, inline: true },
                                 { name: '📊 Tổng vote', value: `${stats.count1 + stats.count2}`, inline: true }
                             )
                             .setThumbnail(interaction.user.displayAvatarURL())
