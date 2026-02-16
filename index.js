@@ -111,19 +111,27 @@ client.on('interactionCreate', async (interaction) => {
             const title = options.getString('title');
             const op1 = options.getString('op1');
             const op2 = options.getString('op2');
-            const pollId = interaction.id;
-
-            pollStats.set(pollId, { op1, op2, count1: 0, count2: 0, users: [] });
 
             const embed = new EmbedBuilder().setTitle(`📝 ${title}`).setColor(0xf1c40f)
                 .addFields({ name: `1️⃣ ${op1}`, value: '0', inline: true }, { name: `2️⃣ ${op2}`, value: '0', inline: true });
 
             const buttons = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`p_1_temp`).setLabel(op1).setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(`p_2_temp`).setLabel(op2).setStyle(ButtonStyle.Secondary)
+            );
+
+            const reply = await interaction.reply({ embeds: [embed], components: [buttons], fetchReply: true });
+            const pollId = reply.id;
+            
+            // Lưu poll với message ID thật
+            pollStats.set(pollId, { op1, op2, count1: 0, count2: 0, users: [], messageId: pollId });
+            
+            // Cập nhật button với poll ID đúng
+            const newButtons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(`p_1_${pollId}`).setLabel(op1).setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId(`p_2_${pollId}`).setLabel(op2).setStyle(ButtonStyle.Secondary)
             );
-
-            await interaction.reply({ embeds: [embed], components: [buttons] });
+            await reply.edit({ components: [newButtons] });
         }
     }
 
@@ -143,17 +151,20 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.type === InteractionType.ModalSubmit) {
         try {
+            // Phản hồi ngay lập tức để tránh timeout
+            await interaction.deferReply({ ephemeral: true });
+
             const [ , type, pollId] = interaction.customId.split('_');
             const reason = interaction.fields.getTextInputValue('reason');
             const stats = pollStats.get(pollId);
             
             if (!stats) {
-                return interaction.reply({ content: '❌ Poll đã hết hạn hoặc không tồn tại.', ephemeral: true });
+                return interaction.editReply({ content: '❌ Poll đã hết hạn hoặc không tồn tại.' });
             }
 
             // Kiểm tra user đã vote chưa
             if (stats.users.includes(interaction.user.id)) {
-                return interaction.reply({ content: '❌ Bạn đã gửi phản hồi rồi!', ephemeral: true });
+                return interaction.editReply({ content: '❌ Bạn đã gửi phản hồi rồi!' });
             }
 
             type === '1' ? stats.count1++ : stats.count2++;
@@ -189,10 +200,14 @@ client.on('interactionCreate', async (interaction) => {
                 console.log('⚠️ Chưa thiết lập kênh admin. Dùng lệnh /channel để cài đặt.');
             }
 
-            await interaction.reply({ content: '✅ Đã gửi phản hồi thành công!', ephemeral: true });
+            await interaction.editReply({ content: '✅ Đã gửi phản hồi thành công!' });
         } catch (error) {
             console.error('Lỗi khi xử lý modal:', error);
-            await interaction.reply({ content: '❌ Có lỗi xảy ra khi gửi phản hồi. Vui lòng thử lại.', ephemeral: true });
+            try {
+                await interaction.editReply({ content: '❌ Có lỗi xảy ra khi gửi phản hồi. Vui lòng thử lại.' });
+            } catch (e) {
+                console.error('Không thể gửi phản hồi lỗi:', e);
+            }
         }
     }
 });
