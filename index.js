@@ -50,6 +50,35 @@ function saveData() {
     }
 }
 
+// Hàm lấy ngày Chủ nhật cuối cùng
+function getLastSunday() {
+    const now = new Date();
+    const day = now.getDay(); // 0 = Chủ nhật, 1 = Thứ 2, ...
+    const diff = day === 0 ? 0 : day; // Nếu hôm nay là CN thì 0, không thì lấy số ngày từ CN
+    const lastSunday = new Date(now);
+    lastSunday.setDate(now.getDate() - diff);
+    lastSunday.setHours(0, 0, 0, 0);
+    return lastSunday.getTime();
+}
+
+// Hàm kiểm tra và reset vote tuần mới
+function checkAndResetWeekly() {
+    const currentWeekStart = getLastSunday();
+    
+    pollStats.forEach((stats, pollId) => {
+        if (!stats.lastReset || stats.lastReset < currentWeekStart) {
+            // Reset vote cho tuần mới
+            stats.users = [];
+            stats.count1 = 0;
+            stats.count2 = 0;
+            stats.lastReset = currentWeekStart;
+            console.log(`🔄 Reset poll ${pollId} cho tuần mới`);
+        }
+    });
+    
+    saveData();
+}
+
 // Lưu trữ dữ liệu
 let botConfig = { adminChannel: null };
 const pollStats = new Map();
@@ -57,6 +86,12 @@ const systemLogs = []; // Lưu lại các hoạt động gần đây của bot
 
 // Load dữ liệu khi khởi động
 loadData();
+checkAndResetWeekly(); // Kiểm tra và reset nếu cần
+
+// Kiểm tra reset mỗi 1 giờ
+setInterval(() => {
+    checkAndResetWeekly();
+}, 60 * 60 * 1000); // 1 giờ
 
 // --- 1. ĐĂNG KÝ SLASH COMMANDS ---
 const commands = [
@@ -158,7 +193,12 @@ client.on('interactionCreate', async (interaction) => {
             const tempId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             
             // Lưu poll tạm thời trước khi reply
-            pollStats.set(tempId, { op1, op2, count1: 0, count2: 0, users: [], title, channelId: interaction.channelId });
+            const currentWeekStart = getLastSunday();
+            pollStats.set(tempId, { 
+                op1, op2, count1: 0, count2: 0, users: [], 
+                title, channelId: interaction.channelId,
+                lastReset: currentWeekStart // Lưu timestamp tuần hiện tại
+            });
 
             const embed = new EmbedBuilder().setTitle(`📝 ${title}`).setColor(0xf1c40f)
                 .addFields({ name: `1️⃣ ${op1}`, value: '0', inline: true }, { name: `2️⃣ ${op2}`, value: '0', inline: true });
@@ -193,12 +233,28 @@ client.on('interactionCreate', async (interaction) => {
         const stats = pollStats.get(pollId);
         
         if (!stats) return interaction.reply({ content: '❌ Poll hết hạn.', ephemeral: true });
-        if (stats.users.includes(interaction.user.id)) return interaction.reply({ content: '❌ Bạn đã vote rồi!', ephemeral: true });
+        
+        // Kiểm tra và reset nếu cần
+        const currentWeekStart = getLastSunday();
+        if (!stats.lastReset || stats.lastReset < currentWeekStart) {
+            stats.users = [];
+            stats.count1 = 0;
+            stats.count2 = 0;
+            stats.lastReset = currentWeekStart;
+            saveData();
+        }
+        
+        if (stats.users.includes(interaction.user.id)) return interaction.reply({ content: '❌ Bạn đã vote trong tuần này rồi! Reset vào Chủ nhật.', ephemeral: true });
 
         // Phản hồi ngay để tránh timeout
         await interaction.deferReply({ ephemeral: true });
 
         try {
+            // Lấy thông tin member trong server
+            const member = await interaction.guild.members.fetch(interaction.user.id);
+            const displayName = member.displayName || interaction.user.username;
+            const voteTime = new Date();
+            
             // Cập nhật số vote
             type === '1' ? stats.count1++ : stats.count2++;
             stats.users.push(interaction.user.id);
@@ -219,15 +275,18 @@ client.on('interactionCreate', async (interaction) => {
                     const adminChan = await client.channels.fetch(botConfig.adminChannel);
                     if (adminChan) {
                         const log = new EmbedBuilder()
-                            .setTitle('🔔 Vote Poll mới')
+                            .setTitle('🔔 Vote Poll Mới')
                             .setColor(type === '1' ? 0x3498db : 0x9b59b6)
                             .addFields(
-                                { name: '👤 Người dùng', value: `${interaction.user.tag} (${interaction.user.id})`, inline: false },
-                                { name: '📊 Lựa chọn', value: type === '1' ? `1️⃣ ${stats.op1}` : `2️⃣ ${stats.op2}`, inline: true },
-                                { name: '📝 Poll', value: stats.title || 'Không có tiêu đề', inline: true }
+                                { name: '👤 Tên trong server', value: displayName, inline: true },
+                                { name: '🆔 Username', value: interaction.user.tag, inline: true },
+                                { name: '⏰ Thời gian react', value: `<t:${Math.floor(voteTime.getTime() / 1000)}:F>`, inline: false },
+                                { name: '📝 Form react', value: `**${stats.title || 'Poll'}**`, inline: false },
+                                { name: '✅ Lựa chọn', value: type === '1' ? `1️⃣ ${stats.op1}` : `2️⃣ ${stats.op2}`, inline: true },
+                                { name: '📊 Tổng vote', value: `${stats.count1 + stats.count2}`, inline: true }
                             )
                             .setThumbnail(interaction.user.displayAvatarURL())
-                            .setFooter({ text: `User ID: ${interaction.user.id}` })
+                            .setFooter({ text: `User ID: ${interaction.user.id} • Reset: Chủ nhật hàng tuần` })
                             .setTimestamp();
                         await adminChan.send({ embeds: [log] });
                     }
