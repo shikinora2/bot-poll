@@ -154,22 +154,31 @@ client.on('interactionCreate', async (interaction) => {
             const op1 = options.getString('op1');
             const op2 = options.getString('op2');
 
+            // Tạo ID tạm thời trước
+            const tempId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            // Lưu poll tạm thời trước khi reply
+            pollStats.set(tempId, { op1, op2, count1: 0, count2: 0, users: [], title, channelId: interaction.channelId });
+
             const embed = new EmbedBuilder().setTitle(`📝 ${title}`).setColor(0xf1c40f)
                 .addFields({ name: `1️⃣ ${op1}`, value: '0', inline: true }, { name: `2️⃣ ${op2}`, value: '0', inline: true });
 
             const buttons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`p_1_temp`).setLabel(op1).setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId(`p_2_temp`).setLabel(op2).setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId(`p_1_${tempId}`).setLabel(op1).setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(`p_2_${tempId}`).setLabel(op2).setStyle(ButtonStyle.Secondary)
             );
 
             const reply = await interaction.reply({ embeds: [embed], components: [buttons], fetchReply: true });
             const pollId = reply.id;
             
-            // Lưu poll với message ID thật
-            pollStats.set(pollId, { op1, op2, count1: 0, count2: 0, users: [], messageId: pollId, title, channelId: interaction.channelId });
+            // Chuyển dữ liệu từ tempId sang pollId thật
+            const pollData = pollStats.get(tempId);
+            pollData.messageId = pollId;
+            pollStats.delete(tempId);
+            pollStats.set(pollId, pollData);
             saveData();
             
-            // Cập nhật button với poll ID đúng
+            // Cập nhật button với poll ID thật
             const newButtons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(`p_1_${pollId}`).setLabel(op1).setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId(`p_2_${pollId}`).setLabel(op2).setStyle(ButtonStyle.Secondary)
@@ -178,41 +187,22 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // XỬ LÝ NÚT BẤM & MODAL (Giống như phiên bản trước nhưng thêm gửi log vào kênh đã chọn)
+    // XỬ LÝ NÚT BẤM - Bỏ form, gửi thông tin trực tiếp
     if (interaction.isButton()) {
         const [ , type, pollId] = interaction.customId.split('_');
         const stats = pollStats.get(pollId);
         
-        if (!stats) return interaction.reply({ content: 'Poll hết hạn.', ephemeral: true });
-        if (stats.users.includes(interaction.user.id)) return interaction.reply({ content: 'Bạn đã vote rồi!', ephemeral: true });
+        if (!stats) return interaction.reply({ content: '❌ Poll hết hạn.', ephemeral: true });
+        if (stats.users.includes(interaction.user.id)) return interaction.reply({ content: '❌ Bạn đã vote rồi!', ephemeral: true });
 
-        const modal = new ModalBuilder().setCustomId(`m_${type}_${pollId}`).setTitle('Phản hồi ý kiến');
-        const input = new TextInputBuilder().setCustomId('reason').setLabel("Lý do").setStyle(TextInputStyle.Paragraph).setRequired(true);
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
-        await interaction.showModal(modal);
-    }
+        // Phản hồi ngay để tránh timeout
+        await interaction.deferReply({ ephemeral: true });
 
-    if (interaction.type === InteractionType.ModalSubmit) {
         try {
-            // Phản hồi ngay lập tức để tránh timeout
-            await interaction.deferReply({ ephemeral: true });
-
-            const [ , type, pollId] = interaction.customId.split('_');
-            const reason = interaction.fields.getTextInputValue('reason');
-            const stats = pollStats.get(pollId);
-            
-            if (!stats) {
-                return interaction.editReply({ content: '❌ Poll đã hết hạn hoặc không tồn tại.' });
-            }
-
-            // Kiểm tra user đã vote chưa
-            if (stats.users.includes(interaction.user.id)) {
-                return interaction.editReply({ content: '❌ Bạn đã gửi phản hồi rồi!' });
-            }
-
+            // Cập nhật số vote
             type === '1' ? stats.count1++ : stats.count2++;
             stats.users.push(interaction.user.id);
-            saveData(); // Lưu dữ liệu sau khi vote
+            saveData();
 
             // Lấy message gốc và cập nhật Embed
             const pollMessage = await interaction.channel.messages.fetch(pollId);
@@ -223,16 +213,20 @@ client.on('interactionCreate', async (interaction) => {
             );
             await pollMessage.edit({ embeds: [embed] });
 
-            // Gửi phản hồi vào kênh Admin đã thiết lập
+            // Gửi thông tin user vào kênh Admin
             if (botConfig.adminChannel) {
                 try {
                     const adminChan = await client.channels.fetch(botConfig.adminChannel);
                     if (adminChan) {
                         const log = new EmbedBuilder()
-                            .setTitle('🔔 Phản hồi Poll mới')
-                            .setColor(0x2ecc71)
-                            .setDescription(`**Người dùng:** ${interaction.user.tag}\n**Đã chọn:** ${type === '1' ? stats.op1 : stats.op2}`)
-                            .addFields({ name: 'Lý do', value: reason })
+                            .setTitle('🔔 Vote Poll mới')
+                            .setColor(type === '1' ? 0x3498db : 0x9b59b6)
+                            .addFields(
+                                { name: '👤 Người dùng', value: `${interaction.user.tag} (${interaction.user.id})`, inline: false },
+                                { name: '📊 Lựa chọn', value: type === '1' ? `1️⃣ ${stats.op1}` : `2️⃣ ${stats.op2}`, inline: true },
+                                { name: '📝 Poll', value: stats.title || 'Không có tiêu đề', inline: true }
+                            )
+                            .setThumbnail(interaction.user.displayAvatarURL())
                             .setFooter({ text: `User ID: ${interaction.user.id}` })
                             .setTimestamp();
                         await adminChan.send({ embeds: [log] });
@@ -244,14 +238,10 @@ client.on('interactionCreate', async (interaction) => {
                 console.log('⚠️ Chưa thiết lập kênh admin. Dùng lệnh /channel để cài đặt.');
             }
 
-            await interaction.editReply({ content: '✅ Đã gửi phản hồi thành công!' });
+            await interaction.editReply({ content: '✅ Đã ghi nhận vote của bạn!' });
         } catch (error) {
-            console.error('Lỗi khi xử lý modal:', error);
-            try {
-                await interaction.editReply({ content: '❌ Có lỗi xảy ra khi gửi phản hồi. Vui lòng thử lại.' });
-            } catch (e) {
-                console.error('Không thể gửi phản hồi lỗi:', e);
-            }
+            console.error('Lỗi khi xử lý vote:', error);
+            await interaction.editReply({ content: '❌ Có lỗi xảy ra. Vui lòng thử lại.' });
         }
     }
 });
