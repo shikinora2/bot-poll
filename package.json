@@ -1,4 +1,24 @@
 {
+  "name": "discord-poll-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for creating interactive polls with feedback forms",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shikinora2/bot-poll.git"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "poll",
+    "voting"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
     "discord.js": "^14.25.1",
     "dotenv": "^17.3.1"
