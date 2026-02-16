@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 
 const { 
     Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, 
@@ -12,10 +14,49 @@ const CLIENT_ID = process.env.CLIENT_ID;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// Lưu trữ dữ liệu (Trong thực tế nên dùng Database như MongoDB/SQLite)
+// File lưu trữ dữ liệu
+const DATA_FILE = path.join(__dirname, 'pollData.json');
+
+// Hàm load dữ liệu từ file
+function loadData() {
+    try {
+        if (fs.existsSync(DATA_FILE)) {
+            const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+            botConfig = data.botConfig || { adminChannel: null };
+            // Chuyển object thành Map
+            if (data.pollStats) {
+                Object.keys(data.pollStats).forEach(key => {
+                    pollStats.set(key, data.pollStats[key]);
+                });
+            }
+            console.log('✅ Đã load dữ liệu từ file');
+        }
+    } catch (error) {
+        console.error('Lỗi khi load dữ liệu:', error);
+    }
+}
+
+// Hàm lưu dữ liệu vào file
+function saveData() {
+    try {
+        const data = {
+            botConfig,
+            pollStats: Object.fromEntries(pollStats), // Chuyển Map thành object
+            lastUpdate: new Date().toISOString()
+        };
+        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (error) {
+        console.error('Lỗi khi lưu dữ liệu:', error);
+    }
+}
+
+// Lưu trữ dữ liệu
 let botConfig = { adminChannel: null };
 const pollStats = new Map();
 const systemLogs = []; // Lưu lại các hoạt động gần đây của bot
+
+// Load dữ liệu khi khởi động
+loadData();
 
 // --- 1. ĐĂNG KÝ SLASH COMMANDS ---
 const commands = [
@@ -87,6 +128,7 @@ client.on('interactionCreate', async (interaction) => {
         if (commandName === 'channel') {
             const channel = options.getChannel('select');
             botConfig.adminChannel = channel.id;
+            saveData();
             return interaction.reply(`✅ Đã thiết lập kênh log tại: ${channel}`);
         }
 
@@ -124,7 +166,8 @@ client.on('interactionCreate', async (interaction) => {
             const pollId = reply.id;
             
             // Lưu poll với message ID thật
-            pollStats.set(pollId, { op1, op2, count1: 0, count2: 0, users: [], messageId: pollId });
+            pollStats.set(pollId, { op1, op2, count1: 0, count2: 0, users: [], messageId: pollId, title, channelId: interaction.channelId });
+            saveData();
             
             // Cập nhật button với poll ID đúng
             const newButtons = new ActionRowBuilder().addComponents(
@@ -169,6 +212,7 @@ client.on('interactionCreate', async (interaction) => {
 
             type === '1' ? stats.count1++ : stats.count2++;
             stats.users.push(interaction.user.id);
+            saveData(); // Lưu dữ liệu sau khi vote
 
             // Lấy message gốc và cập nhật Embed
             const pollMessage = await interaction.channel.messages.fetch(pollId);
