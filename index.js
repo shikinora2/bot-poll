@@ -146,6 +146,10 @@ client.on('interactionCreate', async (interaction) => {
         const reason = interaction.fields.getTextInputValue('reason');
         const stats = pollStats.get(pollId);
         
+        if (!stats) {
+            return interaction.reply({ content: '❌ Poll đã hết hạn hoặc không tồn tại.', ephemeral: true });
+        }
+
         type === '1' ? stats.count1++ : stats.count2++;
         stats.users.push(interaction.user.id);
 
