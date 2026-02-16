@@ -142,39 +142,58 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.type === InteractionType.ModalSubmit) {
-        const [ , type, pollId] = interaction.customId.split('_');
-        const reason = interaction.fields.getTextInputValue('reason');
-        const stats = pollStats.get(pollId);
-        
-        if (!stats) {
-            return interaction.reply({ content: '❌ Poll đã hết hạn hoặc không tồn tại.', ephemeral: true });
-        }
-
-        type === '1' ? stats.count1++ : stats.count2++;
-        stats.users.push(interaction.user.id);
-
-        // Cập nhật Embed
-        const embed = EmbedBuilder.from(interaction.message.embeds[0]);
-        embed.setFields(
-            { name: `1️⃣ ${stats.op1}`, value: `${stats.count1}`, inline: true },
-            { name: `2️⃣ ${stats.op2}`, value: `${stats.count2}`, inline: true }
-        );
-        await interaction.message.edit({ embeds: [embed] });
-
-        // Gửi thông báo về kênh Admin đã cài đặt
-        if (botConfig.adminChannel) {
-            const adminChan = client.channels.cache.get(botConfig.adminChannel);
-            if (adminChan) {
-                const log = new EmbedBuilder()
-                    .setTitle('🔔 Phản hồi mới')
-                    .setDescription(`**${interaction.user.tag}** đã chọn **${type === '1' ? stats.op1 : stats.op2}**`)
-                    .addFields({ name: 'Lý do', value: reason })
-                    .setTimestamp();
-                adminChan.send({ embeds: [log] });
+        try {
+            const [ , type, pollId] = interaction.customId.split('_');
+            const reason = interaction.fields.getTextInputValue('reason');
+            const stats = pollStats.get(pollId);
+            
+            if (!stats) {
+                return interaction.reply({ content: '❌ Poll đã hết hạn hoặc không tồn tại.', ephemeral: true });
             }
-        }
 
-        await interaction.reply({ content: 'Đã gửi phản hồi!', ephemeral: true });
+            // Kiểm tra user đã vote chưa
+            if (stats.users.includes(interaction.user.id)) {
+                return interaction.reply({ content: '❌ Bạn đã gửi phản hồi rồi!', ephemeral: true });
+            }
+
+            type === '1' ? stats.count1++ : stats.count2++;
+            stats.users.push(interaction.user.id);
+
+            // Lấy message gốc và cập nhật Embed
+            const pollMessage = await interaction.channel.messages.fetch(pollId);
+            const embed = EmbedBuilder.from(pollMessage.embeds[0]);
+            embed.setFields(
+                { name: `1️⃣ ${stats.op1}`, value: `${stats.count1}`, inline: true },
+                { name: `2️⃣ ${stats.op2}`, value: `${stats.count2}`, inline: true }
+            );
+            await pollMessage.edit({ embeds: [embed] });
+
+            // Gửi phản hồi vào kênh Admin đã thiết lập
+            if (botConfig.adminChannel) {
+                try {
+                    const adminChan = await client.channels.fetch(botConfig.adminChannel);
+                    if (adminChan) {
+                        const log = new EmbedBuilder()
+                            .setTitle('🔔 Phản hồi Poll mới')
+                            .setColor(0x2ecc71)
+                            .setDescription(`**Người dùng:** ${interaction.user.tag}\n**Đã chọn:** ${type === '1' ? stats.op1 : stats.op2}`)
+                            .addFields({ name: 'Lý do', value: reason })
+                            .setFooter({ text: `User ID: ${interaction.user.id}` })
+                            .setTimestamp();
+                        await adminChan.send({ embeds: [log] });
+                    }
+                } catch (error) {
+                    console.error('Lỗi khi gửi log vào kênh admin:', error);
+                }
+            } else {
+                console.log('⚠️ Chưa thiết lập kênh admin. Dùng lệnh /channel để cài đặt.');
+            }
+
+            await interaction.reply({ content: '✅ Đã gửi phản hồi thành công!', ephemeral: true });
+        } catch (error) {
+            console.error('Lỗi khi xử lý modal:', error);
+            await interaction.reply({ content: '❌ Có lỗi xảy ra khi gửi phản hồi. Vui lòng thử lại.', ephemeral: true });
+        }
     }
 });
 
