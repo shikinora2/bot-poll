@@ -168,7 +168,12 @@ client.once('ready', async () => {
     try {
         console.log('🔄 Đang đăng ký slash commands...');
         
-        // Lấy tất cả guilds mà bot đang tham gia
+        // XÓA tất cả global commands cũ (tránh duplicate)
+        console.log('🗑️ Đang xóa global commands cũ...');
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
+        console.log('✅ Đã xóa global commands cũ');
+        
+        // Đăng ký commands cho từng guild
         for (const guild of client.guilds.cache.values()) {
             await rest.put(
                 Routes.applicationGuildCommands(CLIENT_ID, guild.id),
