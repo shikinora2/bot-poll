@@ -163,12 +163,25 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-(async () => {
+// Đăng ký commands cho từng guild (cập nhật tức thì)
+client.once('ready', async () => {
     try {
-        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log('✅ Đã cập nhật hệ thống lệnh Slash');
-    } catch (e) { console.error(e); }
-})();
+        console.log('🔄 Đang đăng ký slash commands...');
+        
+        // Lấy tất cả guilds mà bot đang tham gia
+        for (const guild of client.guilds.cache.values()) {
+            await rest.put(
+                Routes.applicationGuildCommands(CLIENT_ID, guild.id),
+                { body: commands }
+            );
+            console.log(`✅ Đã đăng ký commands cho guild: ${guild.name}`);
+        }
+        
+        console.log('✅ Hoàn tất đăng ký slash commands!');
+    } catch (e) {
+        console.error('❌ Lỗi khi đăng ký commands:', e);
+    }
+});
 
 // --- 2. XỬ LÝ TƯƠNG TÁC ---
 client.on('interactionCreate', async (interaction) => {
