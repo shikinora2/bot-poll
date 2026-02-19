@@ -99,7 +99,7 @@ const commands = [
     // Lệnh /poll
     new SlashCommandBuilder()
         .setName('poll')
-        .setDescription('Tạo poll biểu quyết')
+        .setDescription('Quản lý poll biểu quyết')
         .addSubcommand(sub =>
             sub.setName('create')
                .setDescription('Tạo poll mới')
@@ -107,6 +107,29 @@ const commands = [
                .addStringOption(opt => opt.setName('op1').setDescription('Lựa chọn 1').setRequired(true))
                .addStringOption(opt => opt.setName('op2').setDescription('Lựa chọn 2 (tuỳ chọn)').setRequired(false))
                .addStringOption(opt => opt.setName('description').setDescription('Phụ đề/Mô tả (tuỳ chọn)').setRequired(false))
+        )
+        .addSubcommand(sub =>
+            sub.setName('list')
+               .setDescription('Xem danh sách tất cả poll đang hoạt động')
+        )
+        .addSubcommand(sub =>
+            sub.setName('info')
+               .setDescription('Xem chi tiết một poll cụ thể')
+               .addStringOption(opt => opt.setName('poll_id').setDescription('ID của poll').setRequired(true))
+        )
+        .addSubcommand(sub =>
+            sub.setName('edit')
+               .setDescription('Chỉnh sửa poll đã tạo')
+               .addStringOption(opt => opt.setName('poll_id').setDescription('ID của poll').setRequired(true))
+               .addStringOption(opt => opt.setName('title').setDescription('Tiêu đề mới').setRequired(false))
+               .addStringOption(opt => opt.setName('op1').setDescription('Lựa chọn 1 mới').setRequired(false))
+               .addStringOption(opt => opt.setName('op2').setDescription('Lựa chọn 2 mới').setRequired(false))
+               .addStringOption(opt => opt.setName('description').setDescription('Phụ đề/Mô tả mới').setRequired(false))
+        )
+        .addSubcommand(sub =>
+            sub.setName('delete')
+               .setDescription('Xóa một poll cụ thể')
+               .addStringOption(opt => opt.setName('poll_id').setDescription('ID của poll').setRequired(true))
         ),
     // Lệnh /help
     new SlashCommandBuilder()
@@ -162,11 +185,19 @@ client.on('interactionCreate', async (interaction) => {
                 .setTitle('📖 Hướng dẫn sử dụng Bot Poll')
                 .setColor(0x3498db)
                 .addFields(
-                    { name: '`/poll create`', value: 'Tạo một bảng biểu quyết mới với form phản hồi.' },
-                    { name: '`/channel`', value: 'Thiết lập kênh để bot gửi thông báo form về cho Admin.' },
-                    { name: '`/log`', value: 'Hiển thị các hoạt động hệ thống gần đây.' },
-                    { name: '`/admin`', value: 'Kiểm tra trạng thái máy chủ và cấu hình bot.' }
-                );
+                    { name: '**📊 Quản lý Poll**', value: '\u200b', inline: false },
+                    { name: '`/poll create`', value: 'Tạo một poll mới với tiêu đề và các lựa chọn' },
+                    { name: '`/poll list`', value: 'Xem danh sách tất cả poll đang hoạt động' },
+                    { name: '`/poll info <id>`', value: 'Xem thông tin chi tiết của một poll theo ID' },
+                    { name: '`/poll edit <id>`', value: 'Chỉnh sửa tiêu đề, lựa chọn hoặc mô tả của poll' },
+                    { name: '`/poll delete <id>`', value: 'Xóa một poll cụ thể theo ID' },
+                    { name: '**⚙️ Cài đặt & Quản trị**', value: '\u200b', inline: false },
+                    { name: '`/channel`', value: 'Thiết lập kênh để bot gửi thông báo vote về cho Admin' },
+                    { name: '`/log`', value: 'Xem lịch sử vote trong tuần hiện tại' },
+                    { name: '`/admin panel`', value: 'Xem bảng điều khiển admin và trạng thái bot' },
+                    { name: '`/admin cancel`', value: 'Xóa poll được tạo gần nhất' }
+                )
+                .setFooter({ text: '💡 Mỗi người chỉ vote 1 lần/tuần • Reset vào Chủ nhật hàng tuần' });
             return interaction.reply({ embeds: [helpEmbed] });
         }
 
@@ -211,23 +242,23 @@ client.on('interactionCreate', async (interaction) => {
             report += `Tổng số vote: **${allVotes.length}**\n`;
             report += `Thời gian: <t:${Math.floor(currentWeekStart / 1000)}:D> - <t:${Math.floor(currentWeekEnd / 1000)}:D>\n\n`;
             report += '```\n';
-            report += '┌────┬─────────────────────┬──────────────────────┬─────────────────┐\n';
-            report += '│ #  │ Tên User            │ Poll                 │ Lựa chọn        │\n';
-            report += '├────┼─────────────────────┼──────────────────────┼─────────────────┤\n';
+            report += '┌───┬─────────────────┬──────────────────┬──────────────┐\n';
+            report += '│ # │ Tên User        │ Poll             │ Lựa chọn     │\n';
+            report += '├───┼─────────────────┼──────────────────┼──────────────┤\n';
             
             // Giới hạn 20 vote để tránh quá dài
             const displayVotes = allVotes.slice(0, 20);
             
             displayVotes.forEach((vote, index) => {
-                const num = String(index + 1).padEnd(2);
-                const name = vote.displayName.substring(0, 19).padEnd(19);
-                const poll = vote.pollTitle.substring(0, 20).padEnd(20);
-                const option = vote.option.substring(0, 15).padEnd(15);
+                const num = String(index + 1).padEnd(1);
+                const name = vote.displayName.substring(0, 15).padEnd(15);
+                const poll = vote.pollTitle.substring(0, 16).padEnd(16);
+                const option = vote.option.substring(0, 12).padEnd(12);
                 
                 report += `│ ${num} │ ${name} │ ${poll} │ ${option} │\n`;
             });
             
-            report += '└────┴─────────────────────┴──────────────────────┴─────────────────┘\n';
+            report += '└───┴─────────────────┴──────────────────┴──────────────┘\n';
             
             if (allVotes.length > 20) {
                 report += `\n... và ${allVotes.length - 20} vote khác\n`;
@@ -302,71 +333,251 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (commandName === 'poll') {
-            const title = options.getString('title');
-            const description = options.getString('description');
-            const op1 = options.getString('op1');
-            const op2 = options.getString('op2');
-
-            // Tạo ID tạm thời trước
-            const tempId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const subcommand = options.getSubcommand();
             
-            // Lưu poll tạm thời trước khi reply
-            const currentWeekStart = getLastSunday();
-            pollStats.set(tempId, { 
-                op1, op2, count1: 0, count2: 0, users: [], 
-                title, description, channelId: interaction.channelId,
-                lastReset: currentWeekStart // Lưu timestamp tuần hiện tại
-            });
-
-            // Tạo embed với thiết kế mới
-            const embed = new EmbedBuilder()
-                .setTitle(`📝 ${title}`)
-                .setColor(0xf1c40f);
-            
-            // Thêm phụ đề nếu có
-            if (description) {
-                embed.setDescription(description);
+            // === DANH SÁCH POLL ===
+            if (subcommand === 'list') {
+                if (pollStats.size === 0) {
+                    return interaction.reply({ content: '📋 Chưa có poll nào đang hoạt động.', ephemeral: true });
+                }
+                
+                const listEmbed = new EmbedBuilder()
+                    .setTitle('📋 Danh sách Poll đang hoạt động')
+                    .setColor(0x3498db)
+                    .setDescription(`Tổng số: **${pollStats.size}** poll\n`);
+                
+                let counter = 1;
+                pollStats.forEach((stats, pollId) => {
+                    const totalVotes = stats.count1 + stats.count2;
+                    const channelMention = stats.channelId ? `<#${stats.channelId}>` : 'N/A';
+                    listEmbed.addFields({
+                        name: `${counter}. ${stats.title || 'Untitled Poll'}`,
+                        value: `🆔 ID: \`${pollId}\`\n📊 Votes: ${totalVotes}\n📍 Kênh: ${channelMention}\n✅ Lựa chọn: ${stats.op1} / ${stats.op2 || 'N/A'}`,
+                        inline: false
+                    });
+                    counter++;
+                });
+                
+                listEmbed.setFooter({ text: 'Dùng /poll info <poll_id> để xem chi tiết' });
+                return interaction.reply({ embeds: [listEmbed], ephemeral: true });
             }
             
-            // Thêm footer thông tin
-            embed.setFooter({ text: 'Mỗi người chỉ được vote 1 lần/tuần • Reset: Chủ nhật' });
-
-            // Tạo buttons - 1 hoặc 2 tuỳ theo input
-            const buttonComponents = [
-                new ButtonBuilder().setCustomId(`p_1_${tempId}`).setLabel(op1).setStyle(ButtonStyle.Primary).setEmoji('1️⃣')
-            ];
-            
-            if (op2) {
-                buttonComponents.push(
-                    new ButtonBuilder().setCustomId(`p_2_${tempId}`).setLabel(op2).setStyle(ButtonStyle.Secondary).setEmoji('2️⃣')
-                );
+            // === THÔNG TIN CHI TIẾT POLL ===
+            if (subcommand === 'info') {
+                const pollId = options.getString('poll_id');
+                const stats = pollStats.get(pollId);
+                
+                if (!stats) {
+                    return interaction.reply({ content: `❌ Không tìm thấy poll với ID: \`${pollId}\``, ephemeral: true });
+                }
+                
+                const totalVotes = stats.count1 + stats.count2;
+                const percentage1 = totalVotes > 0 ? ((stats.count1 / totalVotes) * 100).toFixed(1) : 0;
+                const percentage2 = totalVotes > 0 ? ((stats.count2 / totalVotes) * 100).toFixed(1) : 0;
+                
+                const infoEmbed = new EmbedBuilder()
+                    .setTitle(`📊 Chi tiết Poll: ${stats.title || 'Untitled'}`)
+                    .setColor(0x9b59b6)
+                    .addFields(
+                        { name: '🆔 Poll ID', value: `\`${pollId}\``, inline: false },
+                        { name: '📝 Tiêu đề', value: stats.title || 'N/A', inline: true },
+                        { name: '📍 Kênh', value: stats.channelId ? `<#${stats.channelId}>` : 'N/A', inline: true },
+                        { name: '📊 Tổng votes', value: `${totalVotes}`, inline: true },
+                        { name: `1️⃣ ${stats.op1}`, value: `${stats.count1} votes (${percentage1}%)`, inline: true },
+                        { name: `2️⃣ ${stats.op2 || 'N/A'}`, value: `${stats.count2} votes (${percentage2}%)`, inline: true },
+                        { name: '👥 Đã vote', value: `${stats.users.length} người`, inline: true }
+                    );
+                
+                if (stats.description) {
+                    infoEmbed.addFields({ name: '📄 Mô tả', value: stats.description, inline: false });
+                }
+                
+                if (stats.lastReset) {
+                    infoEmbed.addFields({ 
+                        name: '🔄 Tuần hiện tại', 
+                        value: `<t:${Math.floor(stats.lastReset / 1000)}:D> - <t:${Math.floor((stats.lastReset + 7 * 24 * 60 * 60 * 1000) / 1000)}:D>`, 
+                        inline: false 
+                    });
+                }
+                
+                return interaction.reply({ embeds: [infoEmbed], ephemeral: true });
             }
-
-            const buttons = new ActionRowBuilder().addComponents(buttonComponents);
-
-            const reply = await interaction.reply({ embeds: [embed], components: [buttons], fetchReply: true });
-            const pollId = reply.id;
             
-            // Chuyển dữ liệu từ tempId sang pollId thật
-            const pollData = pollStats.get(tempId);
-            pollData.messageId = pollId;
-            pollStats.delete(tempId);
-            pollStats.set(pollId, pollData);
-            saveData();
-            
-            // Cập nhật button với poll ID thật
-            const newButtonComponents = [
-                new ButtonBuilder().setCustomId(`p_1_${pollId}`).setLabel(op1).setStyle(ButtonStyle.Primary).setEmoji('1️⃣')
-            ];
-            
-            if (op2) {
-                newButtonComponents.push(
-                    new ButtonBuilder().setCustomId(`p_2_${pollId}`).setLabel(op2).setStyle(ButtonStyle.Secondary).setEmoji('2️⃣')
-                );
+            // === CHỈNH SỬA POLL ===
+            if (subcommand === 'edit') {
+                const pollId = options.getString('poll_id');
+                const stats = pollStats.get(pollId);
+                
+                if (!stats) {
+                    return interaction.reply({ content: `❌ Không tìm thấy poll với ID: \`${pollId}\``, ephemeral: true });
+                }
+                
+                // Lấy các giá trị mới (nếu có)
+                const newTitle = options.getString('title');
+                const newOp1 = options.getString('op1');
+                const newOp2 = options.getString('op2');
+                const newDescription = options.getString('description');
+                
+                // Kiểm tra xem có thay đổi gì không
+                if (!newTitle && !newOp1 && !newOp2 && !newDescription) {
+                    return interaction.reply({ content: '⚠️ Bạn chưa nhập thông tin mới nào để chỉnh sửa!', ephemeral: true });
+                }
+                
+                // Cập nhật thông tin
+                if (newTitle) stats.title = newTitle;
+                if (newOp1) stats.op1 = newOp1;
+                if (newOp2 !== null) stats.op2 = newOp2; // Cho phép xóa option 2 bằng cách để trống
+                if (newDescription !== null) stats.description = newDescription;
+                
+                saveData();
+                
+                // Cập nhật message poll
+                try {
+                    const channel = await client.channels.fetch(stats.channelId);
+                    const message = await channel.messages.fetch(pollId);
+                    
+                    // Tạo embed mới
+                    const embed = new EmbedBuilder()
+                        .setTitle(`📝 ${stats.title}`)
+                        .setColor(0xf1c40f);
+                    
+                    if (stats.description) {
+                        embed.setDescription(stats.description);
+                    }
+                    
+                    embed.setFooter({ text: 'Mỗi người chỉ được vote 1 lần/tuần • Reset: Chủ nhật • [Đã chỉnh sửa]' });
+                    
+                    // Tạo buttons mới
+                    const buttonComponents = [
+                        new ButtonBuilder().setCustomId(`p_1_${pollId}`).setLabel(stats.op1).setStyle(ButtonStyle.Primary).setEmoji('1️⃣')
+                    ];
+                    
+                    if (stats.op2) {
+                        buttonComponents.push(
+                            new ButtonBuilder().setCustomId(`p_2_${pollId}`).setLabel(stats.op2).setStyle(ButtonStyle.Secondary).setEmoji('2️⃣')
+                        );
+                    }
+                    
+                    const buttons = new ActionRowBuilder().addComponents(buttonComponents);
+                    
+                    await message.edit({ embeds: [embed], components: [buttons] });
+                    
+                    return interaction.reply({ 
+                        content: `✅ Đã cập nhật poll \`${pollId}\` thành công!`, 
+                        ephemeral: true 
+                    });
+                } catch (error) {
+                    console.error('Lỗi khi cập nhật message poll:', error);
+                    return interaction.reply({ 
+                        content: `⚠️ Đã cập nhật database nhưng không thể cập nhật message poll. Lỗi: ${error.message}`, 
+                        ephemeral: true 
+                    });
+                }
             }
             
-            const newButtons = new ActionRowBuilder().addComponents(newButtonComponents);
-            await reply.edit({ components: [newButtons] });
+            // === XÓA POLL ===
+            if (subcommand === 'delete') {
+                const pollId = options.getString('poll_id');
+                const stats = pollStats.get(pollId);
+                
+                if (!stats) {
+                    return interaction.reply({ content: `❌ Không tìm thấy poll với ID: \`${pollId}\``, ephemeral: true });
+                }
+                
+                try {
+                    // Xóa message poll
+                    const channel = await client.channels.fetch(stats.channelId);
+                    const message = await channel.messages.fetch(pollId);
+                    await message.delete();
+                    
+                    // Xóa khỏi database
+                    pollStats.delete(pollId);
+                    saveData();
+                    
+                    return interaction.reply({ 
+                        content: `✅ Đã xóa poll: **${stats.title}** (ID: \`${pollId}\`)`, 
+                        ephemeral: true 
+                    });
+                } catch (error) {
+                    console.error('Lỗi khi xóa poll:', error);
+                    // Xóa khỏi database dù không xóa được message
+                    pollStats.delete(pollId);
+                    saveData();
+                    return interaction.reply({ 
+                        content: `⚠️ Đã xóa poll khỏi database nhưng không thể xóa message. Poll: **${stats.title}**`, 
+                        ephemeral: true 
+                    });
+                }
+            }
+            
+            // === TẠO POLL MỚI ===
+            if (subcommand === 'create') {
+                const title = options.getString('title');
+                const description = options.getString('description');
+                const op1 = options.getString('op1');
+                const op2 = options.getString('op2');
+
+                // Tạo ID tạm thời trước
+                const tempId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Lưu poll tạm thời trước khi reply
+                const currentWeekStart = getLastSunday();
+                pollStats.set(tempId, { 
+                    op1, op2, count1: 0, count2: 0, users: [], 
+                    title, description, channelId: interaction.channelId,
+                    lastReset: currentWeekStart // Lưu timestamp tuần hiện tại
+                });
+
+                // Tạo embed với thiết kế mới
+                const embed = new EmbedBuilder()
+                    .setTitle(`📝 ${title}`)
+                    .setColor(0xf1c40f);
+                
+                // Thêm phụ đề nếu có
+                if (description) {
+                    embed.setDescription(description);
+                }
+                
+                // Thêm footer thông tin
+                embed.setFooter({ text: 'Mỗi người chỉ được vote 1 lần/tuần • Reset: Chủ nhật' });
+
+                // Tạo buttons - 1 hoặc 2 tuỳ theo input
+                const buttonComponents = [
+                    new ButtonBuilder().setCustomId(`p_1_${tempId}`).setLabel(op1).setStyle(ButtonStyle.Primary).setEmoji('1️⃣')
+                ];
+                
+                if (op2) {
+                    buttonComponents.push(
+                        new ButtonBuilder().setCustomId(`p_2_${tempId}`).setLabel(op2).setStyle(ButtonStyle.Secondary).setEmoji('2️⃣')
+                    );
+                }
+
+                const buttons = new ActionRowBuilder().addComponents(buttonComponents);
+
+                const reply = await interaction.reply({ embeds: [embed], components: [buttons], fetchReply: true });
+                const pollId = reply.id;
+                
+                // Chuyển dữ liệu từ tempId sang pollId thật
+                const pollData = pollStats.get(tempId);
+                pollData.messageId = pollId;
+                pollStats.delete(tempId);
+                pollStats.set(pollId, pollData);
+                saveData();
+                
+                // Cập nhật button với poll ID thật
+                const newButtonComponents = [
+                    new ButtonBuilder().setCustomId(`p_1_${pollId}`).setLabel(op1).setStyle(ButtonStyle.Primary).setEmoji('1️⃣')
+                ];
+                
+                if (op2) {
+                    newButtonComponents.push(
+                        new ButtonBuilder().setCustomId(`p_2_${pollId}`).setLabel(op2).setStyle(ButtonStyle.Secondary).setEmoji('2️⃣')
+                    );
+                }
+                
+                const newButtons = new ActionRowBuilder().addComponents(newButtonComponents);
+                await reply.edit({ components: [newButtons] });
+            }
         }
     }
 
