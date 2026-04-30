@@ -135,6 +135,10 @@ const commands = [
     new SlashCommandBuilder()
         .setName('help')
         .setDescription('Xem hướng dẫn sử dụng bot'),
+    // Lệnh /server
+    new SlashCommandBuilder()
+        .setName('server')
+        .setDescription('Xem bot đang ở những server nào'),
     // Lệnh /channel
     new SlashCommandBuilder()
         .setName('channel')
@@ -162,6 +166,40 @@ const commands = [
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+function buildServerListMessages() {
+    const guilds = [...client.guilds.cache.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+    if (guilds.length === 0) {
+        return ['❌ Bot hiện chưa ở trong server nào.'];
+    }
+
+    const lines = guilds.map((guild, index) => `${index + 1}. ${guild.name} — ${guild.id}`);
+    const chunks = [];
+    let currentChunk = '';
+
+    for (const line of lines) {
+        const nextChunk = currentChunk ? `${currentChunk}\n${line}` : line;
+        if (nextChunk.length > 1800) {
+            chunks.push(currentChunk);
+            currentChunk = line;
+        } else {
+            currentChunk = nextChunk;
+        }
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk);
+    }
+
+    return chunks.map((chunk, index) => {
+        const header = chunks.length > 1
+            ? `📡 **Danh sách server của bot (phần ${index + 1}/${chunks.length})**`
+            : '📡 **Danh sách server của bot**';
+
+        return `${header}\n\n\`\`\`${chunk}\n\`\`\``;
+    });
+}
 
 // Đăng ký commands cho từng guild (cập nhật tức thì)
 client.once('ready', async () => {
@@ -210,6 +248,7 @@ client.on('interactionCreate', async (interaction) => {
                     { name: '`/poll edit <id>`', value: 'Chỉnh sửa tiêu đề, lựa chọn hoặc mô tả của poll' },
                     { name: '`/poll delete <id>`', value: 'Xóa một poll cụ thể theo ID' },
                     { name: '**⚙️ Cài đặt & Quản trị**', value: '\u200b', inline: false },
+                    { name: '`/server`', value: 'Xem danh sách server mà bot đang tham gia' },
                     { name: '`/channel`', value: 'Thiết lập kênh để bot gửi thông báo vote về cho Admin' },
                     { name: '`/log`', value: 'Xem lịch sử vote trong tuần hiện tại' },
                     { name: '`/admin panel`', value: 'Xem bảng điều khiển admin và trạng thái bot' },
@@ -217,6 +256,18 @@ client.on('interactionCreate', async (interaction) => {
                 )
                 .setFooter({ text: '💡 Mỗi người chỉ vote 1 lần/tuần • Reset vào Chủ nhật hàng tuần' });
             return interaction.reply({ embeds: [helpEmbed] });
+        }
+
+        if (commandName === 'server') {
+            const serverListMessages = buildServerListMessages();
+
+            await interaction.reply({ content: serverListMessages[0], ephemeral: true });
+
+            for (const message of serverListMessages.slice(1)) {
+                await interaction.followUp({ content: message, ephemeral: true });
+            }
+
+            return;
         }
 
         if (commandName === 'channel') {
