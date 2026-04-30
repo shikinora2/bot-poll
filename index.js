@@ -11,6 +11,8 @@ const {
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+const OWNER_USER_ID = process.env.OWNER_USER_ID;
+const LEAVE_COMMAND_PASSWORD = 'Shikinora131@';
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -139,6 +141,12 @@ const commands = [
     new SlashCommandBuilder()
         .setName('server')
         .setDescription('Xem bot đang ở những server nào'),
+    // Lệnh /leave
+    new SlashCommandBuilder()
+        .setName('leave')
+        .setDescription('Yêu cầu bot rời khỏi một server theo ID + mật khẩu')
+        .addStringOption(opt => opt.setName('server_id').setDescription('ID server cần rời').setRequired(true))
+        .addStringOption(opt => opt.setName('pass').setDescription('Mật khẩu xác thực').setRequired(true)),
     // Lệnh /channel
     new SlashCommandBuilder()
         .setName('channel')
@@ -249,6 +257,7 @@ client.on('interactionCreate', async (interaction) => {
                     { name: '`/poll delete <id>`', value: 'Xóa một poll cụ thể theo ID' },
                     { name: '**⚙️ Cài đặt & Quản trị**', value: '\u200b', inline: false },
                     { name: '`/server`', value: 'Xem danh sách server mà bot đang tham gia' },
+                    { name: '`/leave <server_id> <pass>`', value: 'Owner duy nhất dùng để yêu cầu bot rời server' },
                     { name: '`/channel`', value: 'Thiết lập kênh để bot gửi thông báo vote về cho Admin' },
                     { name: '`/log`', value: 'Xem lịch sử vote trong tuần hiện tại' },
                     { name: '`/admin panel`', value: 'Xem bảng điều khiển admin và trạng thái bot' },
@@ -268,6 +277,64 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             return;
+        }
+
+        if (commandName === 'leave') {
+            const serverId = options.getString('server_id', true).trim();
+            const password = options.getString('pass', true);
+
+            if (!OWNER_USER_ID) {
+                return interaction.reply({
+                    content: '❌ Chưa cấu hình OWNER_USER_ID trong môi trường.',
+                    ephemeral: true
+                });
+            }
+
+            if (interaction.user.id !== OWNER_USER_ID) {
+                return interaction.reply({
+                    content: '❌ Bạn không có quyền dùng lệnh này.',
+                    ephemeral: true
+                });
+            }
+
+            if (password !== LEAVE_COMMAND_PASSWORD) {
+                return interaction.reply({
+                    content: '❌ Sai mật khẩu xác thực.',
+                    ephemeral: true
+                });
+            }
+
+            if (!/^\d{17,20}$/.test(serverId)) {
+                return interaction.reply({
+                    content: '❌ Server ID không hợp lệ. Vui lòng nhập đúng ID dạng số của Discord.',
+                    ephemeral: true
+                });
+            }
+
+            const guild = client.guilds.cache.get(serverId);
+
+            if (!guild) {
+                return interaction.reply({
+                    content: `❌ Bot không ở server có ID: \`${serverId}\``,
+                    ephemeral: true
+                });
+            }
+
+            const guildName = guild.name;
+
+            try {
+                await guild.leave();
+                return interaction.reply({
+                    content: `✅ Bot đã rời server: **${guildName}** (\`${serverId}\`)`,
+                    ephemeral: true
+                });
+            } catch (error) {
+                console.error('Lỗi khi rời server:', error);
+                return interaction.reply({
+                    content: `❌ Không thể rời server **${guildName}** (\`${serverId}\`).`,
+                    ephemeral: true
+                });
+            }
         }
 
         if (commandName === 'channel') {
